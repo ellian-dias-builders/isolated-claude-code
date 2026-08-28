@@ -1,0 +1,41 @@
+# Claude Code isolado do host. Só ficam visíveis para o container: este
+# repositório, o cache Maven (bind rw, compartilhado com o host de propósito) e
+# uma cópia do login do Claude.
+#
+#   docker compose up -d --build
+#   docker compose exec claude caveman claude
+services:
+  claude:
+    build:
+      context: ./docker/claude
+      args:
+        # O bind rw de ~/.m2/repository é compartilhado com o host: o usuário do
+        # container precisa do mesmo uid/gid para não trocar o dono dos arquivos.
+        UID: ${UID:-1000}
+        GID: ${GID:-1000}
+    image: pnb/claude-dev
+    container_name: pnb-claude
+    working_dir: /workspace/pnb
+    # Reaproveita o init do Docker para que `sleep infinity` como PID 1 não
+    # deixe zumbis dos processos que o Claude e o caveman disparam.
+    init: true
+    environment:
+      # Consumido por .mcp.json -> servidor MCP buildersos.
+      BUILDERSOS_TOKEN: ${BUILDERSOS_TOKEN:?exporte BUILDERSOS_TOKEN (veja ~/.config/buildersos/env)}
+      # Resolvidos por ${env.*} em docker/maven/settings.xml (GitHub Packages).
+      GITHUB_USERNAME: ${GITHUB_USERNAME:?exporte GITHUB_USERNAME}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:?exporte GITHUB_TOKEN com scope read:packages}
+    volumes:
+      - .:/workspace/pnb
+      # Home do container: login do Claude, histórico, ~/.caveman e config do
+      # rtk sobrevivem a `down`/`up`. Semeado a partir da imagem na criação.
+      - claude-home:/home/dev
+      # Cache Maven compartilhado com o host — sem redownload das dependências.
+      - ${HOME}/.m2/repository:/home/dev/.m2/repository
+      - ./docker/maven/settings.xml:/home/dev/.m2/settings.xml:ro
+      # Read-only: o entrypoint copia uma vez para dentro do container e o
+      # arquivo do host nunca é reescrito.
+      - ${HOME}/.claude/.credentials.json:/seed/claude-credentials.json:ro
+
+volumes:
+  claude-home:

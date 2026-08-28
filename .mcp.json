@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "buildersos": {
+      "type": "http",
+      "url": "https://os-api.platformbuilders.io/mcp",
+      "headers": {
+        "Authorization": "Bearer ${BUILDERSOS_TOKEN}",
+        "x-project-slug": "${BUILDERSOS_PROJECT_SLUG}"
+      }
+    }
+  }
+}
