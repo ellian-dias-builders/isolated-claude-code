@@ -14,7 +14,7 @@ services:
         # container precisa do mesmo uid/gid para não trocar o dono dos arquivos.
         UID: ${UID:-1000}
         GID: ${GID:-1000}
-    image: pnb-logger/claude-dev
+    image: pnb-code/claude-dev
     container_name: pnb-code
     working_dir: /workspace/pnb-code
     # Reaproveita o init do Docker para que `sleep infinity` como PID 1 não

@@ -103,14 +103,14 @@ entrada, então **sem o mount do asdf não há sessão**.
 | Caminho | Papel |
 |---|---|
 | `docker-compose.yml` | Serviço `claude`: binds, volume de home, variáveis obrigatórias. |
-| `docker/claude/Dockerfile` | Imagem `pnb-logger/claude-dev` — base do sistema, Claude Code, caveman, rtk. |
+| `docker/claude/Dockerfile` | Imagem `pnb-code/claude-dev` — base do sistema, Claude Code, caveman, rtk. |
 | `docker/claude/entrypoint.sh` | Provisionamento idempotente do home a cada start. |
 | `docker/maven/settings.xml` | `settings.xml` do Maven, montado read-only. |
 | `.mvn/maven.config`, `.mvn/rrf/` | Remote Repository Filter do Maven. |
 
 ## Adaptando o template
 
-**Nomes.** Imagem `pnb-logger/claude-dev`, container `pnb-code`, volume
+**Nomes.** Imagem `pnb-code/claude-dev`, container `pnb-code`, volume
 `claude-home` e o par `working_dir` (compose) / `WORKDIR` (Dockerfile) — estes
 dois são `/workspace/pnb-code` e **precisam concordar**, assim como o bind do
 repositório. Rodar dois projetos em paralelo exige renomear imagem, container e
