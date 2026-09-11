@@ -5,6 +5,7 @@
 set -euo pipefail
 
 readonly SEED_CREDENTIALS=/seed/claude-credentials.json
+readonly SEED_GITCONFIG=/seed/gitconfig
 readonly CLAUDE_DIR="${HOME}/.claude"
 readonly SETTINGS="${CLAUDE_DIR}/settings.json"
 
@@ -16,6 +17,13 @@ mkdir -p "${CLAUDE_DIR}"
 if [[ ! -f "${CLAUDE_DIR}/.credentials.json" && -r "${SEED_CREDENTIALS}" ]]; then
     install -m 600 "${SEED_CREDENTIALS}" "${CLAUDE_DIR}/.credentials.json"
     echo "entrypoint: login do Claude semeado a partir do host"
+fi
+
+# Git config: cópia única a partir de um mount read-only. Se o arquivo não
+# existir no container, copia do host. O ~/.gitconfig do host nunca é escrito.
+if [[ ! -f "${HOME}/.gitconfig" && -r "${SEED_GITCONFIG}" ]]; then
+    install -m 600 "${SEED_GITCONFIG}" "${HOME}/.gitconfig"
+    echo "entrypoint: .gitconfig semeado a partir do host"
 fi
 
 if [[ ! -x "${HOME}/.caveman/bin/caveman-proxy" ]]; then

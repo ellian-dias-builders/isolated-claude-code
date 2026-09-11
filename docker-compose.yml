@@ -1,6 +1,7 @@
 # Claude Code isolado do host. Só ficam visíveis para o container: este
-# repositório, o cache Maven (bind rw, compartilhado com o host de propósito) e
-# uma cópia do login do Claude.
+# repositório, o asdf do host (bind ro, de onde vem todo o toolchain), o cache
+# Maven (bind rw, compartilhado com o host de propósito) e uma cópia do login
+# do Claude.
 #
 #   docker compose up -d --build
 #   docker compose exec claude caveman claude
@@ -13,20 +14,18 @@ services:
         # container precisa do mesmo uid/gid para não trocar o dono dos arquivos.
         UID: ${UID:-1000}
         GID: ${GID:-1000}
-    image: pnb/claude-dev
-    container_name: pnb-claude
-    working_dir: /workspace/pnb
+    image: pnb-code/claude-dev
+    container_name: pnb-code
+    working_dir: /workspace/pnb-code
     # Reaproveita o init do Docker para que `sleep infinity` como PID 1 não
     # deixe zumbis dos processos que o Claude e o caveman disparam.
     init: true
     environment:
-      # Consumido por .mcp.json -> servidor MCP buildersos.
-      BUILDERSOS_TOKEN: ${BUILDERSOS_TOKEN:?exporte BUILDERSOS_TOKEN (veja ~/.config/buildersos/env)}
       # Resolvidos por ${env.*} em docker/maven/settings.xml (GitHub Packages).
       GITHUB_USERNAME: ${GITHUB_USERNAME:?exporte GITHUB_USERNAME}
       GITHUB_TOKEN: ${GITHUB_TOKEN:?exporte GITHUB_TOKEN com scope read:packages}
     volumes:
-      - .:/workspace/pnb
+      - .:/workspace/pnb-code
       # Home do container: login do Claude, histórico, ~/.caveman e config do
       # rtk sobrevivem a `down`/`up`. Semeado a partir da imagem na criação.
       - claude-home:/home/dev
@@ -36,6 +35,18 @@ services:
       # Read-only: o entrypoint copia uma vez para dentro do container e o
       # arquivo do host nunca é reescrito.
       - ${HOME}/.claude/.credentials.json:/seed/claude-credentials.json:ro
+      # Git config: montado como read-only, o entrypoint copia para ~/.gitconfig
+      # se não existir. Persiste mesmo após rebuild da imagem.
+      - ${HOME}/.gitconfig:/seed/gitconfig:ro
+      # Toolchain do host via asdf, em vez de reinstalar JDK/Maven/Node/Rust em
+      # cada imagem. Read-only: instalar e desinstalar ferramenta é ato do host.
+      # O ponto de montagem casa com ASDF_DATA_DIR, fixado no Dockerfile.
+      - ${HOME}/.asdf:/opt/asdf:ro
+      # O binário do asdf (Go, estático) não mora no data dir — vem do host para
+      # não divergir do layout de /opt/asdf.
+      - /usr/bin/asdf:/usr/local/bin/asdf:ro
+      # Versões default fora dos projetos que têm o próprio .tool-versions.
+      - ${HOME}/.tool-versions:/home/dev/.tool-versions:ro
 
 volumes:
   claude-home:
