@@ -11,9 +11,9 @@ uma cópia deles de brinde; quem não tiver sobe o container do mesmo jeito.
 
 ## Pré-requisitos
 
-Docker e Docker **Compose v2.32+** (os mounts opcionais usam `required: false`),
-mais duas variáveis exportadas — o `docker-compose.yml` falha na hora nomeando a
-que faltar, em vez de subir um container que só quebra depois no `mvn`:
+Docker e Docker Compose v2, mais duas variáveis exportadas — o
+`docker-compose.yml` falha na hora nomeando a que faltar, em vez de subir um
+container que só quebra depois no `mvn`:
 
 ```bash
 export GITHUB_USERNAME="<user>"     # GitHub Packages (platformbuilders/ppn-shared)
@@ -52,8 +52,8 @@ gravadas no volume.
 | Usuário | `dev`, non-root, uid/gid espelhando o host (`UID`/`GID` como build args). |
 | Toolchain (Node, e o que o `.tool-versions` mandar) | Instalado **na imagem** pelo asdf. Nada vem do host, e `asdf install` dentro do container funciona. |
 | Cache Maven | Volume nomeado `maven-repo`. **Não** é bind de `~/.m2`: o preço é baixar as dependências uma vez por volume. |
-| Configuração do git | `~/.gitconfig` do host montado **read-only** em `/seed/` e copiado **uma vez** pelo entrypoint. Mount **opcional**: sem o arquivo no host, o container sobe igual e você configura `user.name`/`user.email` aqui dentro. |
-| Login do Claude | Mesmo esquema e também **opcional** — atalho para quem já usa o Claude Code no host. Sem ele, `claude` pede login na primeira sessão. O arquivo do host nunca é reescrito. |
+| Configuração do git | `~/.gitconfig` do host montado **read-only** em `/seed/` e copiado **uma vez** pelo entrypoint. Sem o arquivo no host, o container sobe igual e você configura `user.name`/`user.email` aqui dentro. |
+| Login do Claude | Mesmo esquema — atalho para quem já usa o Claude Code no host. Sem ele, `claude` pede login na primeira sessão. O arquivo do host nunca é reescrito. |
 | Histórico e settings do host | **Não** entram. Os hooks do `settings.json` do host apontam para caminhos do host e quebrariam aqui — o container gera os seus no build. |
 | MCPs | Só `caveman` e `caveman-cloud`, registrados no build. MCPs locais do host (IDE, por exemplo) ficam de fora. |
 | `settings.xml` | `docker/maven/settings.xml` montado read-only. Sem credencial no arquivo: só `${env.GITHUB_USERNAME}`/`${env.GITHUB_TOKEN}`, resolvidos em runtime. |
@@ -62,6 +62,26 @@ gravadas no volume.
 O home (`~/.claude`, `~/.caveman`, config do rtk) vive no volume nomeado
 `claude-home`, então login, histórico e aprovações sobrevivem a
 `docker compose down`.
+
+### Host sem esses arquivos
+
+Os dois mounts de `/seed/` são declarados sem condição, porque o
+`required: false` do Compose só existe a partir da v2.32 e quebra a validação
+nas versões anteriores. Quando o arquivo não existe no host, o Docker monta um
+**diretório vazio** no lugar dele — o entrypoint ignora o que não for arquivo
+regular não-vazio, então o container sobe normalmente.
+
+O efeito colateral é do lado do host: o Docker **cria** `~/.gitconfig/` (ou
+`~/.claude/.credentials.json/`) como diretório, e aí o `git config --global` da
+máquina passa a falhar. Se você não tem esses arquivos, crie-os vazios antes do
+primeiro `up` — o entrypoint ignora arquivo vazio do mesmo jeito:
+
+```bash
+mkdir -p ~/.claude && touch ~/.gitconfig ~/.claude/.credentials.json
+```
+
+Alternativa: apagar as duas linhas `- ${HOME}/...:/seed/...:ro` do
+`docker-compose.yml`. Elas são conveniência, não requisito.
 
 ## Toolchain: `.tool-versions` manda na imagem
 
@@ -155,8 +175,8 @@ Projeto sem GitHub Packages: remova o bloco `environment` do compose, o mount do
   `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`.
 - **`init: true`** evita que `sleep infinity` como PID 1 deixe zumbis dos
   processos disparados pelo Claude e pelo caveman.
-- **`create_host_path: false`** nos dois mounts opcionais impede o Docker de
-  criar um diretório vazio no host no lugar de um arquivo que não existe.
+- **O entrypoint testa os seeds com `-s`**, e não com `-r`: o diretório vazio
+  que o Docker monta quando o arquivo não existe no host passaria por `-r`.
 - **O hook do rtk exige TTY**: sem ele o prompt de patch cai no default `N` e o
   hook não é gravado — daí o `script -qec` no `Dockerfile` e no entrypoint.
 - **Os pacotes npm vão para `/usr/local`**, fora tanto do home quanto do
@@ -183,9 +203,10 @@ docker compose down -v && docker compose up -d --build
 
 ## Troubleshooting
 
-**O container não sobe, com erro no mount de `/seed/...`.** Compose anterior à
-v2.32 não conhece `required: false`. Atualize o Compose ou comente os dois
-blocos `type: bind` do `docker-compose.yml` — eles são opcionais por definição.
+**`git config --global` passou a falhar no host, dizendo que `~/.gitconfig` é um
+diretório.** Você não tinha o arquivo e o Docker o criou como diretório ao
+montar. `rmdir ~/.gitconfig && touch ~/.gitconfig` — veja "Host sem esses
+arquivos".
 
 **`claude` pede login.** Não havia token no host para copiar, ou o que foi
 copiado expirou. Rode `claude login` *dentro* do container; fica gravado no

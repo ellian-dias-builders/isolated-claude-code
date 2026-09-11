@@ -1,8 +1,8 @@
 # Claude Code isolado do host. O único requisito da máquina é Docker: o
 # toolchain, o Claude Code, o caveman e o rtk são instalados na imagem. Do
-# filesystem do host só é montado este repositório — mais, se existirem, o
-# ~/.gitconfig e o login do Claude, ambos read-only, copiados uma vez e
-# opcionais (`required: false`, Compose v2.32+).
+# filesystem do host só é montado este repositório — mais o ~/.gitconfig e o
+# login do Claude, ambos read-only e copiados uma vez pelo entrypoint, que
+# ignora qualquer um dos dois que não exista na máquina.
 #
 #   docker compose up -d --build
 #   docker compose exec claude caveman claude
@@ -39,26 +39,16 @@ services:
       # vez por volume.
       - maven-repo:/home/dev/.m2/repository
       - ./docker/maven/settings.xml:/home/dev/.m2/settings.xml:ro
-      # Configuração do git do host, copiada uma vez pelo entrypoint.
-      # `required: false` deixa o container subir em máquina que não tem o
-      # arquivo; `create_host_path: false` impede o Docker de criar um
-      # diretório vazio no lugar dele.
-      - type: bind
-        source: ${HOME}/.gitconfig
-        target: /seed/gitconfig
-        read_only: true
-        required: false
-        bind:
-          create_host_path: false
-      # Idem para o login do Claude: atalho para quem já usa o Claude Code no
-      # host. Sem ele, `claude` pede login na primeira sessão.
-      - type: bind
-        source: ${HOME}/.claude/.credentials.json
-        target: /seed/claude-credentials.json
-        read_only: true
-        required: false
-        bind:
-          create_host_path: false
+      # Configuração do git e login do Claude, read-only, copiados uma vez pelo
+      # entrypoint. São os dois únicos arquivos do host além do repositório.
+      #
+      # Sintaxe curta de propósito: `required: false` resolveria o caso de o
+      # arquivo não existir no host, mas só existe no Compose v2.32+. Aqui o
+      # Docker cria um diretório vazio no lugar do arquivo ausente e é o
+      # entrypoint que ignora o que não for arquivo regular não-vazio. Veja
+      # "Host sem esses arquivos" no README.
+      - ${HOME}/.gitconfig:/seed/gitconfig:ro
+      - ${HOME}/.claude/.credentials.json:/seed/claude-credentials.json:ro
 
 volumes:
   claude-home:

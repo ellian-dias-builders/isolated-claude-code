@@ -21,14 +21,17 @@ install -m 644 "${SEED_TOOL_VERSIONS}" "${HOME}/.tool-versions"
 # Configuração do git: cópia única a partir de um mount read-only, quando o
 # host tiver um ~/.gitconfig. O arquivo do host nunca é escrito, e sem ele o
 # container sobe igual — basta configurar `user.name`/`user.email` aqui dentro.
-if [[ ! -f "${HOME}/.gitconfig" && -r "${SEED_GITCONFIG}" ]]; then
+#
+# `-s` (arquivo regular não-vazio) e não `-r`: quando o arquivo não existe no
+# host, o Docker monta um *diretório* vazio no lugar, que passaria por `-r`.
+if [[ ! -f "${HOME}/.gitconfig" && -s "${SEED_GITCONFIG}" ]]; then
     install -m 600 "${SEED_GITCONFIG}" "${HOME}/.gitconfig"
     echo "entrypoint: .gitconfig semeado a partir do host"
 fi
 
 # Login do Claude: mesmo esquema, e igualmente opcional. Sem o arquivo do host,
 # `claude` pede login na primeira sessão e grava o token no volume.
-if [[ ! -f "${CLAUDE_DIR}/.credentials.json" && -r "${SEED_CREDENTIALS}" ]]; then
+if [[ ! -f "${CLAUDE_DIR}/.credentials.json" && -s "${SEED_CREDENTIALS}" ]]; then
     install -m 600 "${SEED_CREDENTIALS}" "${CLAUDE_DIR}/.credentials.json"
     echo "entrypoint: login do Claude semeado a partir do host"
 fi
