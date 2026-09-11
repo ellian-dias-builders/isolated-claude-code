@@ -6,24 +6,31 @@ set -euo pipefail
 
 readonly SEED_CREDENTIALS=/seed/claude-credentials.json
 readonly SEED_GITCONFIG=/seed/gitconfig
+readonly SEED_TOOL_VERSIONS=/usr/local/share/claude-dev/tool-versions
 readonly CLAUDE_DIR="${HOME}/.claude"
 readonly SETTINGS="${CLAUDE_DIR}/settings.json"
 
 mkdir -p "${CLAUDE_DIR}"
 
-# Login do Claude: cópia única a partir de um mount read-only. O ~/.claude do
-# host nunca é escrito, e nem o histórico nem os hooks dele (que apontam para
-# caminhos do host) entram no container.
-if [[ ! -f "${CLAUDE_DIR}/.credentials.json" && -r "${SEED_CREDENTIALS}" ]]; then
-    install -m 600 "${SEED_CREDENTIALS}" "${CLAUDE_DIR}/.credentials.json"
-    echo "entrypoint: login do Claude semeado a partir do host"
-fi
+# Fallback de versões do asdf para o que roda fora de um projeto com
+# `.tool-versions` próprio. Reescrito a cada start, e não copiado só quando
+# falta: mora no volume de home, que é semeado uma única vez, então sem isto um
+# `docker compose build` com o .tool-versions alterado não teria efeito.
+install -m 644 "${SEED_TOOL_VERSIONS}" "${HOME}/.tool-versions"
 
-# Git config: cópia única a partir de um mount read-only. Se o arquivo não
-# existir no container, copia do host. O ~/.gitconfig do host nunca é escrito.
+# Configuração do git: cópia única a partir de um mount read-only, quando o
+# host tiver um ~/.gitconfig. O arquivo do host nunca é escrito, e sem ele o
+# container sobe igual — basta configurar `user.name`/`user.email` aqui dentro.
 if [[ ! -f "${HOME}/.gitconfig" && -r "${SEED_GITCONFIG}" ]]; then
     install -m 600 "${SEED_GITCONFIG}" "${HOME}/.gitconfig"
     echo "entrypoint: .gitconfig semeado a partir do host"
+fi
+
+# Login do Claude: mesmo esquema, e igualmente opcional. Sem o arquivo do host,
+# `claude` pede login na primeira sessão e grava o token no volume.
+if [[ ! -f "${CLAUDE_DIR}/.credentials.json" && -r "${SEED_CREDENTIALS}" ]]; then
+    install -m 600 "${SEED_CREDENTIALS}" "${CLAUDE_DIR}/.credentials.json"
+    echo "entrypoint: login do Claude semeado a partir do host"
 fi
 
 if [[ ! -x "${HOME}/.caveman/bin/caveman-proxy" ]]; then

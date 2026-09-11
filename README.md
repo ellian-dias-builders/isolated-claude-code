@@ -2,15 +2,18 @@
 
 Template de ambiente Docker para rodar o **Claude Code** sem dar a ele acesso ao
 filesystem do host, já com o ferramental de sessão (`caveman`, `rtk`) e com o
-toolchain de build (JDK, Maven, Node, Rust) vindo do **asdf do host** — a imagem
-não instala nenhum deles.
+toolchain de build instalado na própria imagem via **asdf**.
+
+**O único requisito da máquina é Docker.** Não é preciso ter asdf, JDK, Maven,
+Node ou o próprio Claude Code instalados no host — nada é montado de lá além do
+repositório. Quem já tiver `~/.gitconfig` e login do Claude Code no host ganha
+uma cópia deles de brinde; quem não tiver sobe o container do mesmo jeito.
 
 ## Pré-requisitos
 
-Docker + Compose, o asdf instalado no host (`~/.asdf` e o binário
-`/usr/bin/asdf`) e duas variáveis exportadas — o `docker-compose.yml` falha na
-hora nomeando a que faltar, em vez de subir um container que só quebra depois no
-`mvn`:
+Docker e Docker **Compose v2.32+** (os mounts opcionais usam `required: false`),
+mais duas variáveis exportadas — o `docker-compose.yml` falha na hora nomeando a
+que faltar, em vez de subir um container que só quebra depois no `mvn`:
 
 ```bash
 export GITHUB_USERNAME="<user>"     # GitHub Packages (platformbuilders/ppn-shared)
@@ -21,13 +24,13 @@ O `export` vale só na sessão atual do shell; para não repetir a cada terminal
 coloque as duas linhas no `~/.bashrc`.
 
 `UID`/`GID` são opcionais (default `1000`). Se o seu uid for outro, exporte-os:
-o bind rw de `~/.m2/repository` é compartilhado com o host e gravaria arquivos
-com dono errado.
+o bind do repositório é o único ponto em que o container escreve no host, e
+gravaria arquivos com dono errado.
 
 ## Uso
 
 ```bash
-docker compose up -d --build            # primeira vez (~2 min: Claude Code, caveman, rtk)
+docker compose up -d --build            # primeira vez (~4 min: asdf, Node, Claude Code, caveman)
 docker compose exec claude caveman claude
 ```
 
@@ -37,8 +40,9 @@ do `~/.claude/settings.json` aponta. Chamar `claude` direto pula o caveman.
 
 Shell sem o Claude: `docker compose exec claude bash`.
 
-Na primeira sessão o Claude pede para confiar no diretório; a aprovação fica
-gravada no volume.
+Na primeira sessão o Claude pede para confiar no diretório — e, se o host não
+tinha um login para copiar, pede também para autenticar. As duas coisas ficam
+gravadas no volume.
 
 ## O que é isolado
 
@@ -46,79 +50,89 @@ gravada no volume.
 |---|---|
 | Filesystem | Só `/workspace/pnb-code`. O resto do host não existe para o container. |
 | Usuário | `dev`, non-root, uid/gid espelhando o host (`UID`/`GID` como build args). |
-| Login do Claude | `~/.claude/.credentials.json` montado **read-only** em `/seed/` e copiado **uma vez** pelo entrypoint. O arquivo do host nunca é reescrito. |
-| `~/.gitconfig` | Mesmo esquema: montado read-only em `/seed/gitconfig` e copiado uma vez. O arquivo do host nunca é reescrito. |
+| Toolchain (Node, e o que o `.tool-versions` mandar) | Instalado **na imagem** pelo asdf. Nada vem do host, e `asdf install` dentro do container funciona. |
+| Cache Maven | Volume nomeado `maven-repo`. **Não** é bind de `~/.m2`: o preço é baixar as dependências uma vez por volume. |
+| Configuração do git | `~/.gitconfig` do host montado **read-only** em `/seed/` e copiado **uma vez** pelo entrypoint. Mount **opcional**: sem o arquivo no host, o container sobe igual e você configura `user.name`/`user.email` aqui dentro. |
+| Login do Claude | Mesmo esquema e também **opcional** — atalho para quem já usa o Claude Code no host. Sem ele, `claude` pede login na primeira sessão. O arquivo do host nunca é reescrito. |
 | Histórico e settings do host | **Não** entram. Os hooks do `settings.json` do host apontam para caminhos do host e quebrariam aqui — o container gera os seus no build. |
 | MCPs | Só `caveman` e `caveman-cloud`, registrados no build. MCPs locais do host (IDE, por exemplo) ficam de fora. |
-| Cache Maven | **Bind rw** de `~/.m2/repository` — compartilhado com o host de propósito, para não rebaixar o repositório inteiro. |
-| Toolchain (JDK, Maven, Node, Rust) | **Bind ro** de `~/.asdf` em `/opt/asdf`, mais o binário `/usr/bin/asdf`. Compartilhado com o host de propósito: o container usa o que já está instalado e não pode instalar nem apagar ferramenta. |
 | `settings.xml` | `docker/maven/settings.xml` montado read-only. Sem credencial no arquivo: só `${env.GITHUB_USERNAME}`/`${env.GITHUB_TOKEN}`, resolvidos em runtime. |
 | Rede | Livre, sem allowlist de egress. |
 
-O restante do home (`~/.claude`, `~/.caveman`, config do rtk) vive no volume
-nomeado `claude-home`, então login, histórico e aprovações sobrevivem a
+O home (`~/.claude`, `~/.caveman`, config do rtk) vive no volume nomeado
+`claude-home`, então login, histórico e aprovações sobrevivem a
 `docker compose down`.
 
-## Toolchain: asdf do host, não da imagem
+## Toolchain: `.tool-versions` manda na imagem
 
-Instalar JDK e Maven em cada imagem era trabalho repetido e travava o container
-em *uma* versão de cada. Em vez disso o `~/.asdf` do host entra read-only em
-`/opt/asdf` (`ASDF_DATA_DIR`, fixado no `Dockerfile`) e `/opt/asdf/shims` vem
-**antes** de `/usr/local` no `PATH`. `node`, `java`, `mvn` e `cargo` resolvem
-pelo `.tool-versions` do diretório em que o comando roda, com fallback no
-`~/.tool-versions` do host (montado em `/home/dev/.tool-versions`) — de graça
-para um reator multi-módulo em que cada projeto pede um JDK diferente.
+O `.tool-versions` da raiz do repositório é a **única** declaração do toolchain.
+O build o copia, instala um plugin do asdf por linha e roda `asdf install`:
 
-`JAVA_HOME` não pode ser fixo na imagem porque depende do `.tool-versions` em
-vigor: `/etc/profile.d/asdf-java-home.sh` o exporta via `asdf where java`, então
+```
+nodejs 24.19.0
+```
+
+Node está aí porque `caveman` e `cave` são JS — e `caveman claude` é o comando de
+entrada, então sem Node não há sessão. (O `claude` em si é binário nativo e o
+`rtk` é um binário Rust pronto; nenhum dos dois precisa de Node.)
+
+Para um projeto Java, acrescente as linhas e rebuilde — **nenhum arquivo do
+Docker muda**:
+
+```
+nodejs 24.19.0
+java corretto-21.0.12.9.1
+maven 3.9.9
+```
+
+```bash
+docker compose up -d --build
+```
+
+Cada JDK custa ~300 MB de imagem. Plugins que baixam binário pronto (nodejs,
+java, maven) funcionam direto; plugin que **compila da fonte** (python, ruby)
+precisa de `build-essential` e dos headers da lib acrescentados ao `apt-get
+install` do `Dockerfile`.
+
+Dentro do container o asdf continua utilizável: `/opt/asdf` pertence ao usuário
+`dev`, então `asdf install java corretto-17.0.20.10.1` funciona para um teste
+rápido. Só que `/opt/asdf` é camada de imagem, não volume — o que for instalado
+assim **some quando o container é recriado**. O caminho durável é o
+`.tool-versions` + rebuild.
+
+Subprojetos com `.tool-versions` próprio continuam mandando no seu diretório; o
+da raiz é o fallback, e o entrypoint o copia para `~/.tool-versions` a cada
+start para que valha também fora de `/workspace`.
+
+### `JAVA_HOME`
+
+Não pode ser fixo na imagem porque depende do `.tool-versions` em vigor:
+`/etc/profile.d/asdf-java-home.sh` o exporta via `asdf where java`, então
 **shell de login** (`bash -l`, o que `docker compose exec claude bash` dá) tem
 `JAVA_HOME`; `docker compose exec claude <cmd>` direto não tem. O `mvn` não
 precisa dele (acha o JDK pelo `PATH`); Gradle e `quarkus dev` precisam.
-
-A base da imagem é `ubuntu:26.04`, espelhando a distro do host: binário do asdf
-compilado localmente exige a glibc do host (2.43), e uma base mais velha o
-recusaria. **Ao adaptar o template, case a base com a distro do seu host.**
-
-### Node só no estágio de build
-
-O Claude Code e o caveman são pacotes npm, então instalar um precisa de Node —
-mas a imagem final não carrega Node por isso. O `Dockerfile` tem um estágio
-`cli` (`FROM node:${NODE_VERSION}-slim`) que roda o `npm install -g --prefix
-/opt/cli` e o `caveman setup --install`; a imagem final copia só `/opt/cli` e o
-`/home/dev` semeado, sem `node`, `npm` nem `corepack`. O `rtk` é binário Rust e
-nem no build precisa de Node.
-
-A cópia é de **diretório** (`/opt/cli/bin`, `/opt/cli/lib/node_modules`) de
-propósito: apontar o `COPY` para cada arquivo de `bin/` desreferencia os
-symlinks que o npm cria e duplica 200 MB. E o `HOME` do estágio `cli` é
-`/home/dev`, igual ao da imagem final, porque `caveman setup --agent-native`
-grava caminhos absolutos no `settings.json`.
-
-Em runtime o Node vem do shim do asdf. O `claude` em si é binário nativo e roda
-sem ele, mas `caveman` e `cave` são JS — e `caveman claude` é o comando de
-entrada, então **sem o mount do asdf não há sessão**.
 
 ## Estrutura
 
 | Caminho | Papel |
 |---|---|
-| `docker-compose.yml` | Serviço `claude`: binds, volume de home, variáveis obrigatórias. |
-| `docker/claude/Dockerfile` | Imagem `pnb-code/claude-dev` — base do sistema, Claude Code, caveman, rtk. |
+| `docker-compose.yml` | Serviço `claude`: binds, volumes nomeados, variáveis obrigatórias. |
+| `.tool-versions` | Toolchain da imagem e fallback de versões em runtime. |
+| `docker/claude/Dockerfile` | Imagem `pnb-code/claude-dev` — asdf, toolchain, Claude Code, caveman, rtk. |
 | `docker/claude/entrypoint.sh` | Provisionamento idempotente do home a cada start. |
 | `docker/maven/settings.xml` | `settings.xml` do Maven, montado read-only. |
 | `.mvn/maven.config`, `.mvn/rrf/` | Remote Repository Filter do Maven. |
+| `.dockerignore` | O contexto de build é a raiz do repo (por causa do `.tool-versions`). |
 
 ## Adaptando o template
 
-**Nomes.** Imagem `pnb-code/claude-dev`, container `pnb-code`, volume
-`claude-home` e o par `working_dir` (compose) / `WORKDIR` (Dockerfile) — estes
-dois são `/workspace/pnb-code` e **precisam concordar**, assim como o bind do
-repositório. Rodar dois projetos em paralelo exige renomear imagem, container e
-volume.
+**Nomes.** Imagem `pnb-code/claude-dev`, container `pnb-code`, volumes
+`claude-home` e `maven-repo`, e o par `working_dir` (compose) / `WORKDIR`
+(Dockerfile) — estes dois são `/workspace/pnb-code` e **precisam concordar**,
+assim como o bind do repositório. Rodar dois projetos em paralelo exige renomear
+imagem, container e volumes.
 
-**asdf.** O mount `${HOME}/.asdf:/opt/asdf:ro` casa com `ASDF_DATA_DIR` no
-`Dockerfile` — mudar um exige mudar o outro. O binário vem de `/usr/bin/asdf`;
-se no seu host ele estiver em outro caminho, ajuste o bind.
+**Toolchain.** Só o `.tool-versions`. Veja a seção acima.
 
 **Maven.** `docker/maven/settings.xml` declara o GitHub Packages
 `platformbuilders/ppn-shared`. O `.mvn/maven.config` liga o *Remote Repository
@@ -130,6 +144,9 @@ direto para o Maven Central sem 404 a cada build. O filtro casa groupId
 real de um reator, rode uma vez com
 `-Daether.remoteRepositoryFilter.groupId.record=true`.
 
+Projeto sem GitHub Packages: remova o bloco `environment` do compose, o mount do
+`settings.xml` e o `.mvn/`.
+
 ## Configurações não óbvias
 
 - **`ANTHROPIC_BASE_URL`** não está no compose: é escrito em
@@ -138,52 +155,59 @@ real de um reator, rode uma vez com
   `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`.
 - **`init: true`** evita que `sleep infinity` como PID 1 deixe zumbis dos
   processos disparados pelo Claude e pelo caveman.
+- **`create_host_path: false`** nos dois mounts opcionais impede o Docker de
+  criar um diretório vazio no host no lugar de um arquivo que não existe.
 - **O hook do rtk exige TTY**: sem ele o prompt de patch cai no default `N` e o
   hook não é gravado — daí o `script -qec` no `Dockerfile` e no entrypoint.
+- **Os pacotes npm vão para `/usr/local`**, fora tanto do home quanto do
+  diretório do Node instalado pelo asdf: trocar a versão do Node no
+  `.tool-versions` não leva junto o Claude Code e o caveman.
 
 ## Manutenção
 
-Node (só do estágio de build), Claude Code e caveman têm versão fixada como
-`ARG` no `Dockerfile` — cada bump é deliberado. `rtk` é a exceção: o instalador
-oficial não aceita versão fixa sem `RTK_VERSION`. JDK, Maven, Node e Rust dos
-projetos não são versionados aqui: quem manda é o asdf do host, com `asdf
-install` rodado **no host** (o bind é read-only) — a ferramenta nova aparece no
-container na hora, sem rebuild.
+asdf, Claude Code e caveman têm versão fixada como `ARG` no `Dockerfile` — cada
+bump é deliberado. `rtk` é a exceção: o instalador oficial não aceita versão fixa
+sem `RTK_VERSION`. O toolchain dos projetos fica no `.tool-versions`.
 
-Os binários ficam em `/usr/local`, fora do home, então `docker compose build`
-atualiza Claude Code, caveman e rtk mesmo com o volume `claude-home` existente.
-O que mora no home (proxy nativo do caveman, `settings.json`) é semeado da
-imagem na criação do volume. Para reprovisionar do zero, incluindo novo login:
+Toolchain e binários ficam em `/opt/asdf` e `/usr/local`, fora do home, então
+`docker compose build` atualiza todos eles mesmo com o volume `claude-home`
+existente. O que mora no home (proxy nativo do caveman, `settings.json`) é
+semeado da imagem na criação do volume. Para reprovisionar do zero, incluindo
+novo login:
 
 ```bash
 docker compose down -v && docker compose up -d --build
 ```
 
+`down -v` também apaga o `maven-repo` — o próximo build Maven rebaixa tudo.
+
 ## Troubleshooting
 
-**`claude` pede login.** O token copiado expirou. Rode `claude login` *dentro*
-do container, ou `docker compose down -v` para re-semear a partir do host.
+**O container não sobe, com erro no mount de `/seed/...`.** Compose anterior à
+v2.32 não conhece `required: false`. Atualize o Compose ou comente os dois
+blocos `type: bind` do `docker-compose.yml` — eles são opcionais por definição.
+
+**`claude` pede login.** Não havia token no host para copiar, ou o que foi
+copiado expirou. Rode `claude login` *dentro* do container; fica gravado no
+volume.
+
+**`git commit` reclama de `user.email`.** O host não tinha `~/.gitconfig` para
+copiar. Configure aqui dentro: `git config --global user.email ...`.
 
 **`mvn` falha com 401 em `maven.pkg.github.com`.** `GITHUB_TOKEN` sem scope
 `read:packages`, ou o container subiu antes de você exportar a variável —
 `docker compose up -d --force-recreate`.
 
-**`env: 'node': No such file or directory` ao rodar `caveman`.** O bind do asdf
-não subiu, ou o `.tool-versions` do diretório não declara `nodejs` e o
-`~/.tool-versions` do host também não. Não há Node na imagem — é de propósito.
+**`java`/`mvn`: command not found.** A ferramenta não está no `.tool-versions`.
+Acrescente e `docker compose up -d --build`.
 
-**`java`/`mvn`/`cargo`: command not found.** O bind do asdf não subiu — o host
-não tem `~/.asdf` ou `/usr/bin/asdf` onde o `docker-compose.yml` espera. Confira
-com `docker compose exec claude asdf current`.
+**Versão errada de uma ferramenta.** `asdf current` no diretório mostra de qual
+`.tool-versions` cada versão veio. Diretório sem arquivo próprio cai no
+`~/.tool-versions`, que o entrypoint copia da imagem a cada start.
 
-**`asdf install` falha com read-only filesystem.** É o desenhado: ferramenta se
-instala no host. Para deixar o container instalar também, troque o bind
-`${HOME}/.asdf:/opt/asdf:ro` para `rw` — aí ele passa a poder mexer no toolchain
-inteiro do host.
-
-**Versão errada de java em um projeto.** `asdf current` no diretório mostra de
-qual `.tool-versions` cada versão veio. Projeto sem arquivo próprio cai no
-`~/.tool-versions` do host.
+**`asdf install` de um plugin novo falha na compilação.** O plugin compila da
+fonte e faltam headers. Acrescente as dependências ao `apt-get install` do
+`Dockerfile`.
 
 **Hooks do caveman/rtk sumiram.** O entrypoint reprovisiona cada etapa que
 faltar no próximo start: `docker compose restart claude` e veja os logs.

@@ -1,0 +1,11 @@
+# O contexto de build é a raiz do repositório (o Dockerfile precisa do
+# .tool-versions e do entrypoint.sh), então fica de fora tudo que não entra na
+# imagem — em especial o histórico do git, que dominaria o contexto.
+.git
+.gitignore
+.dockerignore
+.claude
+LICENSE
+README.md
+docker-compose.yml
+docker/maven
