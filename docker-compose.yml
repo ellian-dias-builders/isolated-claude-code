@@ -19,9 +19,9 @@ services:
         # arquivos.
         UID: ${UID:-1000}
         GID: ${GID:-1000}
-    image: pnb-code/claude-dev
-    container_name: pnb-code
-    working_dir: /workspace/pnb-code
+    image: code/claude-dev
+    container_name: code
+    working_dir: /workspace/code
     # Reaproveita o init do Docker para que `sleep infinity` como PID 1 não
     # deixe zumbis dos processos que o Claude e o caveman disparam.
     init: true
@@ -30,7 +30,7 @@ services:
       GITHUB_USERNAME: ${GITHUB_USERNAME:?exporte GITHUB_USERNAME}
       GITHUB_TOKEN: ${GITHUB_TOKEN:?exporte GITHUB_TOKEN com scope read:packages}
     volumes:
-      - .:/workspace/pnb-code
+      - .:/workspace/code
       # Home do container: login do Claude, histórico, ~/.caveman e config do
       # rtk sobrevivem a `down`/`up`. Semeado a partir da imagem na criação.
       - claude-home:/home/dev
@@ -42,13 +42,34 @@ services:
       # Configuração do git e login do Claude, read-only, copiados uma vez pelo
       # entrypoint. São os dois únicos arquivos do host além do repositório.
       #
-      # Sintaxe curta de propósito: `required: false` resolveria o caso de o
-      # arquivo não existir no host, mas só existe no Compose v2.32+. Aqui o
-      # Docker cria um diretório vazio no lugar do arquivo ausente e é o
-      # entrypoint que ignora o que não for arquivo regular não-vazio. Veja
-      # "Host sem esses arquivos" no README.
+      # Sintaxe curta de propósito, para valer em qualquer Compose v2: quando o
+      # arquivo não existe no host, o Docker monta um diretório vazio no lugar
+      # dele e é o entrypoint que ignora o que não for arquivo regular
+      # não-vazio. Veja "Host sem esses arquivos" no README.
       - ${HOME}/.gitconfig:/seed/gitconfig:ro
       - ${HOME}/.claude/.credentials.json:/seed/claude-credentials.json:ro
+      #
+      # No Compose v2.32+ (`docker compose version`) os dois blocos abaixo
+      # substituem as duas linhas acima e resolvem melhor: `required: false`
+      # pula o mount quando o arquivo não existe, e `create_host_path: false`
+      # impede o Docker de criar um diretório no lugar dele no host.
+      # Versão anterior à v2.32 reprova a validação do arquivo inteiro com
+      # "additional properties 'required' not allowed", e o container nem sobe.
+      #
+      # - type: bind
+      #   source: ${HOME}/.gitconfig
+      #   target: /seed/gitconfig
+      #   read_only: true
+      #   required: false
+      #   bind:
+      #     create_host_path: false
+      # - type: bind
+      #   source: ${HOME}/.claude/.credentials.json
+      #   target: /seed/claude-credentials.json
+      #   read_only: true
+      #   required: false
+      #   bind:
+      #     create_host_path: false
 
 volumes:
   claude-home:

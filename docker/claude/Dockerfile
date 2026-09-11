@@ -132,7 +132,7 @@ ENV TZ=America/Sao_Paulo \
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 
 USER dev
-WORKDIR /workspace/pnb-code
+WORKDIR /workspace/code
 
 # Provisiona caveman e rtk no build (o download do proxy nativo é o passo caro);
 # o entrypoint só refaz cada etapa que estiver faltando.

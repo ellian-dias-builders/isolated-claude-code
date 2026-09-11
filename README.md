@@ -48,7 +48,7 @@ gravadas no volume.
 
 | Recurso | Comportamento |
 |---|---|
-| Filesystem | Só `/workspace/pnb-code`. O resto do host não existe para o container. |
+| Filesystem | Só `/workspace/code`. O resto do host não existe para o container. |
 | Usuário | `dev`, non-root, uid/gid espelhando o host (`UID`/`GID` como build args). |
 | Toolchain (Node, e o que o `.tool-versions` mandar) | Instalado **na imagem** pelo asdf. Nada vem do host, e `asdf install` dentro do container funciona. |
 | Cache Maven | Volume nomeado `maven-repo`. **Não** é bind de `~/.m2`: o preço é baixar as dependências uma vez por volume. |
@@ -82,6 +82,20 @@ mkdir -p ~/.claude && touch ~/.gitconfig ~/.claude/.credentials.json
 
 Alternativa: apagar as duas linhas `- ${HOME}/...:/seed/...:ro` do
 `docker-compose.yml`. Elas são conveniência, não requisito.
+
+#### Se o seu Compose for v2.32+
+
+Confira com `docker compose version`. A partir da v2.32 existe a forma longa
+com `required: false` (pula o mount quando o arquivo não existe) e
+`create_host_path: false` (proíbe o Docker de criar o diretório no host) —
+que resolve o efeito colateral acima em vez de contorná-lo. Ela está
+**comentada** no `docker-compose.yml`, logo abaixo das duas linhas em uso:
+descomente os dois blocos `type: bind` e apague as duas linhas curtas.
+
+Ficou comentada, e não como padrão, porque **versão anterior à v2.32 não a
+ignora** — reprova a validação do arquivo inteiro com `additional properties
+'required' not allowed` e o container não sobe. Como o template se propõe a
+rodar em qualquer máquina com Docker, o default é o que funciona em todas.
 
 ## Toolchain: `.tool-versions` manda na imagem
 
@@ -138,7 +152,7 @@ precisa dele (acha o JDK pelo `PATH`); Gradle e `quarkus dev` precisam.
 |---|---|
 | `docker-compose.yml` | Serviço `claude`: binds, volumes nomeados, variáveis obrigatórias. |
 | `.tool-versions` | Toolchain da imagem e fallback de versões em runtime. |
-| `docker/claude/Dockerfile` | Imagem `pnb-code/claude-dev` — asdf, toolchain, Claude Code, caveman, rtk. |
+| `docker/claude/Dockerfile` | Imagem `code/claude-dev` — asdf, toolchain, Claude Code, caveman, rtk. |
 | `docker/claude/entrypoint.sh` | Provisionamento idempotente do home a cada start. |
 | `docker/maven/settings.xml` | `settings.xml` do Maven, montado read-only. |
 | `.mvn/maven.config`, `.mvn/rrf/` | Remote Repository Filter do Maven. |
@@ -146,9 +160,9 @@ precisa dele (acha o JDK pelo `PATH`); Gradle e `quarkus dev` precisam.
 
 ## Adaptando o template
 
-**Nomes.** Imagem `pnb-code/claude-dev`, container `pnb-code`, volumes
+**Nomes.** Imagem `code/claude-dev`, container `code`, volumes
 `claude-home` e `maven-repo`, e o par `working_dir` (compose) / `WORKDIR`
-(Dockerfile) — estes dois são `/workspace/pnb-code` e **precisam concordar**,
+(Dockerfile) — estes dois são `/workspace/code` e **precisam concordar**,
 assim como o bind do repositório. Rodar dois projetos em paralelo exige renomear
 imagem, container e volumes.
 
